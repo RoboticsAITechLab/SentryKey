@@ -2,18 +2,15 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:encrypt/encrypt.dart' as encrypt;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/export.dart' as pc;
+import '../utils/hash_helper.dart';
 
 /// Handles double-layer encryption (AES-256 GCM) for sensitive vault data.
 class EncryptionService {
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
-  static const String _saltKey = 'sentrykey_vault_encryption_salt';
-  
   encrypt.Key? _derivedKey;
 
   /// Initializes the encryption service by deriving the 256-bit AES key
-  /// from the user's master password using PBKDF2.
+  /// from the user's master password using PBKDF2 with HashHelper's salt.
   Future<void> init(String masterPassword) async {
     _derivedKey = await _deriveKey(masterPassword);
   }
@@ -23,39 +20,10 @@ class EncryptionService {
     _derivedKey = null;
   }
 
-  /// Generates a cryptographically secure 32-byte random salt.
-  static Uint8List _generateSecureSalt() {
-    final random = Random.secure();
-    final values = Uint8List(32);
-    for (int i = 0; i < 32; i++) {
-      values[i] = random.nextInt(256);
-    }
-    return values;
-  }
-
-  /// Retrieves the stored dynamic salt, or generates a new one on first launch.
-  static Future<Uint8List> _getOrGenerateSalt() async {
-    final storedSaltBase64 = await _storage.read(key: _saltKey);
-    if (storedSaltBase64 != null && storedSaltBase64.isNotEmpty) {
-      try {
-        return base64Decode(storedSaltBase64);
-      } catch (e) {
-        // Fallback in case of corruption or decoding error
-      }
-    }
-
-    // Generate a fresh secure salt and write it to secure storage
-    final newSalt = _generateSecureSalt();
-    await _storage.write(
-      key: _saltKey,
-      value: base64Encode(newSalt),
-    );
-    return newSalt;
-  }
-
-  /// Derives a 256-bit (32-byte) key from the master password using PBKDF2-HMAC-SHA256.
+  /// Derives a 256-bit (32-byte) key from the master password using PBKDF2-HMAC-SHA256
+  /// and the dynamic salt obtained from HashHelper.
   Future<encrypt.Key> _deriveKey(String password) async {
-    final salt = await _getOrGenerateSalt();
+    final salt = await HashHelper.getDynamicSalt();
     final derivator = pc.KeyDerivator('SHA-256/HMAC/PBKDF2')
       ..init(pc.Pbkdf2Parameters(salt, 600000, 32)); // 600,000 iterations, 32 bytes (256 bits)
     
@@ -65,37 +33,53 @@ class EncryptionService {
   }
 
   /// Encrypts plain text using AES-256-GCM.
+  /// Generates a unique 12-byte IV, prepends it to the raw ciphertext, and returns it as a Base64 string.
   /// Throws if the service is not initialized.
   String encryptData(String plainText) {
     if (_derivedKey == null) {
       throw Exception('EncryptionService not initialized. Call init() first.');
     }
 
-    final iv = encrypt.IV.fromSecureRandom(12); // 12 bytes for AES-GCM block size / nonce
+    // 1. Generate a unique 12-byte Nonce (IV)
+    final iv = encrypt.IV.fromSecureRandom(12);
+
+    // 2. Initialize the AES-GCM-256 encrypter
     final encrypter = encrypt.Encrypter(encrypt.AES(_derivedKey!, mode: encrypt.AESMode.gcm));
 
+    // 3. Encrypt the data to get the ciphertext bytes (including the GCM tag)
     final encrypted = encrypter.encrypt(plainText, iv: iv);
-    
-    // Prepend the IV to the ciphertext so we can decrypt it later.
-    // Format: base64(iv):base64(ciphertext+tag)
-    return '${iv.base64}:${encrypted.base64}';
+
+    // 4. Combine: 12-byte IV + Ciphertext bytes (with tag)
+    final combinedBytes = Uint8List(12 + encrypted.bytes.length);
+    combinedBytes.setRange(0, 12, iv.bytes);
+    combinedBytes.setRange(12, combinedBytes.length, encrypted.bytes);
+
+    // 5. Encode the complete combined payload into a clean Base64 string
+    return base64.encode(combinedBytes);
   }
 
-  /// Decrypts AES-256-GCM ciphertext.
-  /// Expects the format 'base64(iv):base64(ciphertext+tag)'.
+  /// Decrypts AES-256-GCM ciphertext from a combined Base64 payload.
+  /// Expects the format 'base64(12-byte IV + ciphertext + tag)'.
   String decryptData(String encryptedString) {
     if (_derivedKey == null) {
       throw Exception('EncryptionService not initialized. Call init() first.');
     }
 
-    final parts = encryptedString.split(':');
-    if (parts.length != 2) {
-      throw const FormatException('Invalid encrypted string format.');
+    // 1. Decode the Base64 string to get the combined bytes
+    final combinedBytes = base64.decode(encryptedString);
+    if (combinedBytes.length < 12) {
+      throw const FormatException('Invalid encrypted payload: too short.');
     }
 
-    final iv = encrypt.IV.fromBase64(parts[0]);
-    final encryptedData = encrypt.Encrypted.fromBase64(parts[1]);
+    // 2. Extract the first 12 bytes as the IV
+    final ivBytes = combinedBytes.sublist(0, 12);
+    final iv = encrypt.IV(ivBytes);
 
+    // 3. Extract the remaining bytes as the ciphertext + tag
+    final ciphertextBytes = combinedBytes.sublist(12);
+    final encryptedData = encrypt.Encrypted(ciphertextBytes);
+
+    // 4. Decrypt using AES-GCM-256
     final encrypter = encrypt.Encrypter(encrypt.AES(_derivedKey!, mode: encrypt.AESMode.gcm));
 
     return encrypter.decrypt(encryptedData, iv: iv);

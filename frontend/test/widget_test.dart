@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentry_key/core/utils/hash_helper.dart';
 import 'package:sentry_key/core/services/encryption_service.dart';
@@ -31,7 +32,7 @@ void main() {
       final encryptionService = EncryptionService();
       const masterPassword = 'MyVaultPassword_99!';
       
-      // Initialize service (derives key via PBKDF2-HMAC-SHA256 600k iterations)
+      // Initialize service (derives key via PBKDF2-HMAC-SHA256 600k iterations using HashHelper's salt)
       await encryptionService.init(masterPassword);
 
       const secretPayload = '{"url": "https://bank.com", "username": "admin", "password": "123"}';
@@ -39,16 +40,15 @@ void main() {
       // Encrypt data
       final encryptedPayload = encryptionService.encryptData(secretPayload);
       expect(encryptedPayload, isNotEmpty);
-      expect(encryptedPayload.contains(':'), isTrue); // Has IV and ciphertext parts separator
 
       // Decrypt data
       final decryptedPayload = encryptionService.decryptData(encryptedPayload);
       expect(decryptedPayload, equals(secretPayload));
 
       // Test Integrity - modifying the ciphertext must throw an exception (AEAD property)
-      final parts = encryptedPayload.split(':');
-      final corruptedCiphertext = parts[1].substring(0, parts[1].length - 4) + 'AAAA';
-      final corruptedPayload = '${parts[0]}:$corruptedCiphertext';
+      final combinedBytes = base64.decode(encryptedPayload);
+      combinedBytes[combinedBytes.length - 1] = combinedBytes[combinedBytes.length - 1] ^ 0xFF;
+      final corruptedPayload = base64.encode(combinedBytes);
 
       expect(() => encryptionService.decryptData(corruptedPayload), throwsException);
     });

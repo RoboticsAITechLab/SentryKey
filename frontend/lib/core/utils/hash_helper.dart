@@ -24,6 +24,10 @@ class HashHelper {
   }
 
   /// Retrieves the stored dynamic salt, or generates a new one on first launch.
+  static Future<Uint8List> getDynamicSalt() async {
+    return _getOrGenerateSalt();
+  }
+
   static Future<Uint8List> _getOrGenerateSalt() async {
     final storedSaltBase64 = await _storage.read(key: _saltKey);
     if (storedSaltBase64 != null && storedSaltBase64.isNotEmpty) {
