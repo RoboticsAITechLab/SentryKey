@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../data/models/secret_entry.dart';
 import '../bloc/vault_bloc.dart';
+import 'password_generator_sheet.dart';
 
 /// Modern bottom sheet for adding a new password entry.
 class AddPasswordSheet extends StatefulWidget {
@@ -34,6 +35,7 @@ class _AddPasswordSheetState extends State<AddPasswordSheet> {
   final _usernameCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _urlCtrl = TextEditingController();
+  final _totpCtrl = TextEditingController();
   bool _obscurePassword = true;
   bool _isSubmitting = false;
 
@@ -43,6 +45,7 @@ class _AddPasswordSheetState extends State<AddPasswordSheet> {
     _usernameCtrl.dispose();
     _passwordCtrl.dispose();
     _urlCtrl.dispose();
+    _totpCtrl.dispose();
     super.dispose();
   }
 
@@ -59,6 +62,7 @@ class _AddPasswordSheetState extends State<AddPasswordSheet> {
         'username': _usernameCtrl.text.trim(),
         'password': _passwordCtrl.text,
         'url': _urlCtrl.text.trim(),
+        if (_totpCtrl.text.trim().isNotEmpty) 'totpSecret': _totpCtrl.text.trim(),
       },
       timestamp: DateTime.now(),
     );
@@ -183,16 +187,37 @@ class _AddPasswordSheetState extends State<AddPasswordSheet> {
                     letterSpacing: 1.5,
                   ),
                   decoration: _fieldDecoration('Password', Icons.key_rounded).copyWith(
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                        size: 18,
-                        color: Colors.white38,
-                      ),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
+                    suffixIcon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.auto_awesome_rounded,
+                            size: 18,
+                            color: AppColors.primary,
+                          ),
+                          onPressed: () {
+                            PasswordGeneratorSheet.show(context, (generatedPwd) {
+                              setState(() {
+                                _passwordCtrl.text = generatedPwd;
+                                _obscurePassword = false; // Show it so they can see what was generated
+                              });
+                            });
+                          },
+                          tooltip: 'Generate Password',
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            size: 18,
+                            color: Colors.white38,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscurePassword = !_obscurePassword),
+                        ),
+                      ],
                     ),
                   ),
                   validator: (v) {
@@ -211,6 +236,17 @@ class _AddPasswordSheetState extends State<AddPasswordSheet> {
                   decoration: _fieldDecoration(
                     'Website URL (optional)',
                     Icons.link_rounded,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // 2FA TOTP Secret (optional)
+                TextFormField(
+                  controller: _totpCtrl,
+                  style: const TextStyle(color: Colors.white, fontSize: 14, letterSpacing: 1.2),
+                  decoration: _fieldDecoration(
+                    '2FA Setup Key / TOTP Secret (optional)',
+                    Icons.timer_outlined,
                   ),
                 ),
 

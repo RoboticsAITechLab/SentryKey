@@ -12,6 +12,8 @@ import android.view.autofill.AutofillValue
 import android.app.assist.AssistStructure
 import android.widget.RemoteViews
 import android.content.Context
+import android.content.Intent
+import android.app.PendingIntent
 import org.json.JSONArray
 import org.json.JSONObject
 import android.util.Log
@@ -94,7 +96,31 @@ class SentryAutofillService : AutofillService() {
                 datasetBuilder.setValue(passwordId, AutofillValue.forText(matchedPass), presentationPass)
             }
 
-            responseBuilder.addDataset(datasetBuilder.build())
+            val unlockedDataset = datasetBuilder.build()
+
+            // Setup Authentication Intent
+            val authIntent = Intent(this, AutofillAuthActivity::class.java).apply {
+                putExtra(AutofillAuthActivity.EXTRA_DATASET, unlockedDataset)
+            }
+            val intentSender = PendingIntent.getActivity(
+                this, 1001, authIntent, 
+                PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE
+            ).intentSender
+
+            // Build a locked dataset for presentation
+            val lockedDatasetBuilder = Dataset.Builder()
+            if (usernameId != null) {
+                lockedDatasetBuilder.setValue(usernameId, null, presentationUser)
+            }
+            if (passwordId != null) {
+                val presentationLock = RemoteViews(packageName, android.R.layout.simple_list_item_1).apply {
+                    setTextViewText(android.R.id.text1, "🔒 Tap to unlock SentryKey")
+                }
+                lockedDatasetBuilder.setValue(passwordId, null, presentationLock)
+            }
+            lockedDatasetBuilder.setAuthentication(intentSender)
+
+            responseBuilder.addDataset(lockedDatasetBuilder.build())
             callback.onSuccess(responseBuilder.build())
         } else {
             callback.onSuccess(null)

@@ -21,4 +21,13 @@ abstract class AuthRepository {
 
   /// Sets up a secondary panic/duress password.
   Future<Either<Failure, bool>> setupPanicMode(String panicPassword);
+
+  /// Sets up a custom honey-pot decoy vault profile (e.g. 'office', 'family', 'empty')
+  Future<Either<Failure, bool>> setupDecoyProfile(String pin, String profileName);
+
+  /// Gets all registered decoy profiles (profileName -> masked status / indicator)
+  Future<Either<Failure, Map<String, String>>> getDecoyProfiles();
+
+  /// Deletes a specific decoy profile
+  Future<Either<Failure, bool>> deleteDecoyProfile(String profileName);
 }

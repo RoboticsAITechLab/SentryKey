@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../../../core/services/biometric_storage_service.dart';
 import '../../domain/repositories/auth_repository.dart';
@@ -34,6 +35,31 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(const AuthLoading());
+
+    // --- DEAD MAN'S SWITCH (INACTIVITY WIPE) LOGIC ---
+    try {
+      const storage = FlutterSecureStorage();
+      final lastLoginStr = await storage.read(key: 'last_login_date');
+      final wipeDaysStr = await storage.read(key: 'dead_man_switch_days');
+      
+      if (lastLoginStr != null && wipeDaysStr != null) {
+        final lastLogin = DateTime.parse(lastLoginStr);
+        final wipeDays = int.parse(wipeDaysStr);
+        final daysInactive = DateTime.now().difference(lastLogin).inDays;
+        
+        if (daysInactive >= wipeDays) {
+          // Trigger Dead Man's Switch: Wipe the vault
+          await _authRepository.resetMasterPassword();
+          await storage.delete(key: 'last_login_date');
+          await storage.delete(key: 'dead_man_switch_days');
+          emit(const NewUser());
+          return;
+        }
+      }
+    } catch (e) {
+      // Ignore parse errors
+    }
+    // ------------------------------------------------
 
     final result = await _authRepository.isUserRegistered();
 
@@ -71,7 +97,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     result.fold(
       (failure) => emit(AuthError(message: failure.message)),
-      (_) => emit(const Authenticated()),
+      (_) {
+        const FlutterSecureStorage().write(
+          key: 'last_login_date', 
+          value: DateTime.now().toIso8601String(),
+        );
+        emit(const Authenticated());
+      },
     );
   }
 
@@ -152,6 +184,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             emit(const ExistingUser());
           },
           (_) {
+            const FlutterSecureStorage().write(
+              key: 'last_login_date', 
+              value: DateTime.now().toIso8601String(),
+            );
             emit(const BiometricAuthSuccess());
             emit(const Authenticated());
           },

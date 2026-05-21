@@ -38,6 +38,8 @@ dependencies:
   googleapis: ^13.1.0
   extension_google_sign_in_as_googleapis_auth: ^2.0.13
   archive: ^3.6.0
+  otp: ^3.2.0
+  sensors_plus: ^7.0.0
 
 dev_dependencies:
   flutter_test:

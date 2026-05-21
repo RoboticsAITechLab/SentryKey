@@ -21,6 +21,12 @@ class _VaultHealthScreenState extends State<VaultHealthScreen> with SingleTicker
   int _reusedCount = 0;
   int _pwnedCount = 0;
 
+  List<SecretEntry> _weakEntries = [];
+  List<SecretEntry> _reusedEntries = [];
+  List<SecretEntry> _pwnedEntries = [];
+  
+  String _expandedSection = ''; // 'pwned', 'reused', 'weak', or ''
+
   late AnimationController _progressController;
   late Animation<double> _progressAnimation;
 
@@ -38,6 +44,10 @@ class _VaultHealthScreenState extends State<VaultHealthScreen> with SingleTicker
     int weak = 0;
     int reused = 0;
     int pwned = 0;
+    
+    List<SecretEntry> weakList = [];
+    List<SecretEntry> pwnedList = [];
+    List<SecretEntry> reusedList = [];
 
     for (var entry in passwords) {
       String? pwd = entry.data['password'];
@@ -47,14 +57,23 @@ class _VaultHealthScreenState extends State<VaultHealthScreen> with SingleTicker
 
       if (PwnedService.isPasswordWeak(pwd)) {
         weak++;
+        weakList.add(entry);
       }
 
       bool isPwned = await PwnedService.isPasswordCompromised(pwd);
       if (isPwned) {
         pwned++;
+        pwnedList.add(entry);
       }
     }
 
+    // Find reused entries
+    for (var entry in passwords) {
+      String? pwd = entry.data['password'];
+      if (pwd != null && (passwordCounts[pwd] ?? 0) > 1) {
+        reusedList.add(entry);
+      }
+    }
     reused = passwordCounts.values.where((count) => count > 1).length;
 
     int newScore = 100 - (weak * 10) - (reused * 15) - (pwned * 30);
@@ -65,6 +84,9 @@ class _VaultHealthScreenState extends State<VaultHealthScreen> with SingleTicker
         _weakCount = weak;
         _reusedCount = reused;
         _pwnedCount = pwned;
+        _weakEntries = weakList;
+        _reusedEntries = reusedList;
+        _pwnedEntries = pwnedList;
         _score = newScore;
         _isScanning = false;
       });
@@ -88,49 +110,95 @@ class _VaultHealthScreenState extends State<VaultHealthScreen> with SingleTicker
     return const Color(0xFFFF4D4D);
   }
 
-  Widget _buildStatCard(String title, int count, IconData icon, Color color, String description) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(count > 0 ? 0.3 : 0.05), width: 1.5),
-        boxShadow: count > 0 ? [BoxShadow(color: color.withOpacity(0.1), blurRadius: 10, spreadRadius: 0)] : [],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
+  Widget _buildStatCard(String id, String title, int count, IconData icon, Color color, String description, List<SecretEntry> affectedEntries) {
+    bool isExpanded = _expandedSection == id;
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: () {
+            if (count > 0) {
+              setState(() {
+                _expandedSection = isExpanded ? '' : id;
+              });
+            }
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              shape: BoxShape.circle,
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: color.withOpacity(count > 0 ? (isExpanded ? 0.6 : 0.3) : 0.05), width: 1.5),
+              boxShadow: count > 0 ? [BoxShadow(color: color.withOpacity(isExpanded ? 0.2 : 0.1), blurRadius: isExpanded ? 15 : 10, spreadRadius: 0)] : [],
             ),
-            child: Icon(icon, color: color, size: 28),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Text(
-                  title,
-                  style: GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: color, size: 28),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.6)),
+                      ),
+                    ],
+                  ),
+                ),
                 Text(
-                  description,
-                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.6)),
+                  count.toString(),
+                  style: GoogleFonts.spaceGrotesk(fontSize: 28, fontWeight: FontWeight.bold, color: count > 0 ? color : Colors.white.withOpacity(0.3)),
                 ),
               ],
             ),
           ),
-          Text(
-            count.toString(),
-            style: GoogleFonts.spaceGrotesk(fontSize: 28, fontWeight: FontWeight.bold, color: count > 0 ? color : Colors.white.withOpacity(0.3)),
-          ),
-        ],
-      ),
+        ),
+        if (isExpanded && count > 0)
+          Container(
+            margin: const EdgeInsets.only(bottom: 16, left: 12, right: 12),
+            decoration: BoxDecoration(
+              color: AppColors.surface.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: color.withOpacity(0.2)),
+            ),
+            child: Column(
+              children: affectedEntries.map((e) {
+                final website = e.data['website'] ?? e.data['url'] ?? 'Unknown Platform';
+                final username = e.data['username'] ?? e.data['email'] ?? 'No Username';
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                  leading: const Icon(Icons.security_update_warning_rounded, color: Colors.white30, size: 20),
+                  title: Text(website, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                  subtitle: Text(username, style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11)),
+                  trailing: TextButton(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Please update password for $website in the vault.'), backgroundColor: color, behavior: SnackBarBehavior.floating),
+                      );
+                    },
+                    child: Text('ACTION', style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+                  ),
+                );
+              }).toList(),
+            ),
+          )
+        else
+          const SizedBox(height: 8),
+      ],
     );
   }
 
@@ -158,25 +226,31 @@ class _VaultHealthScreenState extends State<VaultHealthScreen> with SingleTicker
                   ),
                   const SizedBox(height: 16),
                   _buildStatCard(
+                    'pwned',
                     'Compromised',
                     _pwnedCount,
                     Icons.warning_rounded,
                     const Color(0xFFFF4D4D),
                     'Found in known data breaches.',
+                    _pwnedEntries,
                   ),
                   _buildStatCard(
+                    'reused',
                     'Reused',
                     _reusedCount,
                     Icons.difference_rounded,
                     const Color(0xFFFFAB00),
                     'Using the same password multiple times.',
+                    _reusedEntries,
                   ),
                   _buildStatCard(
+                    'weak',
                     'Weak',
                     _weakCount,
                     Icons.shield_outlined,
                     const Color(0xFF00E5FF),
                     'Easily guessable or short passwords.',
+                    _weakEntries,
                   ),
                 ],
               ),

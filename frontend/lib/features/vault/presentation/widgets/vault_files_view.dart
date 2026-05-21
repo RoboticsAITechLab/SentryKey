@@ -29,7 +29,7 @@ class VaultFilesViewState extends State<VaultFilesView> {
 
   final List<String> _categories = ['All', 'Images', 'Docs', 'Audio', 'Video'];
 
-  String get _metadataKey => AuthSession.isDuressMode ? 'vault_files_metadata_duress' : 'vault_files_metadata';
+  String get _metadataKey => AuthSession.metadataKey;
 
   @override
   void initState() {
@@ -52,7 +52,6 @@ class VaultFilesViewState extends State<VaultFilesView> {
           extension: e['extension'],
         )).toList();
         
-        // Sort by date descending
         _files.sort((a, b) => b.dateAdded.compareTo(a.dateAdded));
       }
     } catch (e) {
@@ -211,16 +210,30 @@ class VaultFilesViewState extends State<VaultFilesView> {
             ),
           ),
 
-        // 4. Files List
+        // 4. Staggered Files List
         Expanded(
           child: _filteredFiles.isEmpty
               ? _buildEmptyState()
               : ListView.builder(
+                  physics: const BouncingScrollPhysics(),
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                   itemCount: _filteredFiles.length,
                   itemBuilder: (context, index) {
                     final file = _filteredFiles[index];
-                    return _buildFileCard(file);
+                    return TweenAnimationBuilder<double>(
+                      tween: Tween<double>(begin: 0.0, end: 1.0),
+                      duration: Duration(milliseconds: 250 + (index * 40).clamp(0, 400)),
+                      builder: (context, value, child) {
+                        return Opacity(
+                          opacity: value,
+                          child: Transform.translate(
+                            offset: Offset(0, 16 * (1.0 - value)),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: _buildFileCard(file),
+                    );
                   },
                 ),
         ),
@@ -246,7 +259,7 @@ class VaultFilesViewState extends State<VaultFilesView> {
         border: Border.all(color: AppColors.primary.withOpacity(0.15)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withOpacity(0.05),
+            color: AppColors.primary.withOpacity(0.04),
             blurRadius: 16,
             spreadRadius: 2,
           )
@@ -299,14 +312,42 @@ class VaultFilesViewState extends State<VaultFilesView> {
             ],
           ),
           const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: const LinearProgressIndicator(
-              value: 0.12, // Visual filler for secure vault storage percent
-              backgroundColor: Colors.white10,
-              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-              minHeight: 6,
-            ),
+          // Interactive Custom Progress Bar with glow
+          Stack(
+            children: [
+              Container(
+                width: double.infinity,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // Standard free tier soft-limit (e.g. 250MB)
+                  final double usedRatio = (_totalSizeBytes / (250 * 1024 * 1024)).clamp(0.008, 1.0);
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 800),
+                    width: constraints.maxWidth * usedRatio,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(4),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF00E5FF), Color(0xFF0077B6), AppColors.primary],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withOpacity(0.4),
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
         ],
       ),
@@ -366,7 +407,14 @@ class VaultFilesViewState extends State<VaultFilesView> {
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        color: AppColors.surface,
+        gradient: LinearGradient(
+          colors: [
+            AppColors.surface,
+            AppColors.surface.withOpacity(0.85),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         boxShadow: [
           BoxShadow(
             color: fileColor.withOpacity(0.04),
@@ -375,7 +423,10 @@ class VaultFilesViewState extends State<VaultFilesView> {
             offset: const Offset(0, 8),
           ),
         ],
-        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1),
+        border: Border.all(
+          color: fileColor.withOpacity(0.12),
+          width: 1.2,
+        ),
       ),
       child: Material(
         color: Colors.transparent,
@@ -386,10 +437,8 @@ class VaultFilesViewState extends State<VaultFilesView> {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                // Upgraded glowing dynamic file icon
                 _buildFileIcon(file.extension),
                 const SizedBox(width: 16),
-                // Text details
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -398,8 +447,8 @@ class VaultFilesViewState extends State<VaultFilesView> {
                         file.name,
                         style: GoogleFonts.spaceGrotesk(
                           color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -410,15 +459,15 @@ class VaultFilesViewState extends State<VaultFilesView> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: fileColor.withOpacity(0.15),
+                              color: fileColor.withOpacity(0.12),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               file.extension.toUpperCase(),
                               style: TextStyle(
                                 color: fileColor,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
                           ),
@@ -426,17 +475,17 @@ class VaultFilesViewState extends State<VaultFilesView> {
                           Text(
                             _formatBytes(file.sizeBytes),
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.6),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                              color: Colors.white.withOpacity(0.5),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           const Spacer(),
                           Text(
                             '${file.dateAdded.day.toString().padLeft(2, '0')}/${file.dateAdded.month.toString().padLeft(2, '0')}/${file.dateAdded.year}',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.4),
-                              fontSize: 11,
+                              color: Colors.white.withOpacity(0.35),
+                              fontSize: 10,
                             ),
                           ),
                         ],
@@ -445,23 +494,28 @@ class VaultFilesViewState extends State<VaultFilesView> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // Advanced context actions
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert_rounded, color: Colors.white54),
                   color: AppColors.surface,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: Colors.white.withOpacity(0.05)),
+                  ),
                   onSelected: (value) {
-                    if (value == 'delete') _deleteFile(file);
-                    else if (value == 'open') _openFile(file);
+                    if (value == 'delete') {
+                      _deleteFile(file);
+                    } else if (value == 'open') {
+                      _openFile(file);
+                    }
                   },
                   itemBuilder: (context) => [
-                    const PopupMenuItem(
+                    PopupMenuItem(
                       value: 'open',
                       child: Row(
                         children: [
-                          Icon(Icons.open_in_new_rounded, color: Colors.white70, size: 20),
-                          SizedBox(width: 12),
-                          Text('Open File', style: TextStyle(color: Colors.white)),
+                          Icon(Icons.open_in_new_rounded, color: fileColor, size: 18),
+                          const SizedBox(width: 12),
+                          const Text('Open File', style: TextStyle(color: Colors.white, fontSize: 13)),
                         ],
                       ),
                     ),
@@ -469,9 +523,9 @@ class VaultFilesViewState extends State<VaultFilesView> {
                       value: 'delete',
                       child: Row(
                         children: [
-                          Icon(Icons.delete_outline_rounded, color: Color(0xFFFF4D4D), size: 20),
-                          SizedBox(width: 12),
-                          Text('Delete', style: TextStyle(color: Color(0xFFFF4D4D))),
+                          Icon(Icons.delete_outline_rounded, color: Color(0xFFFF4D4D), size: 18),
+                          const SizedBox(width: 12),
+                          Text('Delete', style: TextStyle(color: Color(0xFFFF4D4D), fontSize: 13)),
                         ],
                       ),
                     ),
@@ -493,14 +547,17 @@ class VaultFilesViewState extends State<VaultFilesView> {
       case 'jpeg':
       case 'png':
       case 'webp':
+      case 'gif':
         return const Color(0xFF00E5FF);
       case 'mp3':
       case 'wav':
       case 'm4a':
+      case 'flac':
         return const Color(0xFFFF00AA);
       case 'mp4':
       case 'mkv':
       case 'avi':
+      case 'mov':
         return const Color(0xFFB000FF);
       case 'doc':
       case 'docx':
@@ -527,16 +584,19 @@ class VaultFilesViewState extends State<VaultFilesView> {
       case 'jpeg':
       case 'png':
       case 'webp':
+      case 'gif':
         iconData = Icons.image_rounded;
         break;
       case 'mp3':
       case 'wav':
       case 'm4a':
+      case 'flac':
         iconData = Icons.audiotrack_rounded;
         break;
       case 'mp4':
       case 'mkv':
       case 'avi':
+      case 'mov':
         iconData = Icons.video_file_rounded;
         break;
       case 'doc':

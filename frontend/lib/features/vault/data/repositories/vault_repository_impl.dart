@@ -24,8 +24,21 @@ class VaultRepositoryImpl implements VaultRepository {
       // 2. Encrypt the JSON string using AES-256
       final encryptedString = _encryptionService.encryptData(jsonString);
 
-      // 3. Store in the encrypted SQLCipher database
-      await db.insert('secrets', secret.toMap(encryptedString));
+      // 3. Perform a safe, intelligent non-destructive merge (newer timestamp wins)
+      final existing = await db.query('secrets', where: 'id = ?', whereArgs: [secret.id]);
+      if (existing.isNotEmpty) {
+        final existingTs = DateTime.parse(existing.first['timestamp'] as String);
+        if (secret.timestamp.isAfter(existingTs)) {
+          await db.update(
+            'secrets', 
+            secret.toMap(encryptedString), 
+            where: 'id = ?', 
+            whereArgs: [secret.id],
+          );
+        }
+      } else {
+        await db.insert('secrets', secret.toMap(encryptedString));
+      }
 
       return const Right(true);
     } catch (e) {

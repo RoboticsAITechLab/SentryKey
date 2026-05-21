@@ -10,6 +10,7 @@ import '../../data/repositories/vault_repository_impl.dart';
 import '../../domain/repositories/vault_repository.dart';
 import '../../../auth/presentation/widgets/glow_button.dart';
 import '../../../auth/presentation/widgets/sentry_text_field.dart';
+import '../../presentation/widgets/password_generator_sheet.dart';
 
 class AddSecretScreen extends StatefulWidget {
   final VaultRepository vaultRepository;
@@ -47,6 +48,7 @@ class _AddSecretScreenState extends State<AddSecretScreen> {
       _controllers['username'] = TextEditingController();
       _controllers['password'] = TextEditingController();
       _controllers['url'] = TextEditingController();
+      _controllers['totpSecret'] = TextEditingController();
       _controllers['password']!.addListener(_checkPasswordStrength);
     } else if (_selectedCategory == 'Bank') {
       _controllers['bankName'] = TextEditingController();
@@ -165,11 +167,37 @@ class _AddSecretScreenState extends State<AddSecretScreen> {
         const SizedBox(height: 16),
         SentryTextField(controller: _controllers['username']!, hint: 'Username / Email', validator: (v) => v!.isEmpty ? 'Required' : null),
         const SizedBox(height: 16),
-        SentryTextField(controller: _controllers['password']!, hint: 'Password', obscureText: true, validator: (v) => v!.isEmpty ? 'Required' : null),
+        Row(
+          children: [
+            Expanded(
+              child: SentryTextField(controller: _controllers['password']!, hint: 'Password', obscureText: true, validator: (v) => v!.isEmpty ? 'Required' : null),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.auto_awesome_rounded, color: AppColors.primary),
+                onPressed: () {
+                  PasswordGeneratorSheet.show(context, (pwd) {
+                    setState(() {
+                      _controllers['password']!.text = pwd;
+                    });
+                  });
+                },
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 8),
         LinearProgressIndicator(value: _passwordStrength, backgroundColor: Colors.grey.withOpacity(0.3), valueColor: AlwaysStoppedAnimation<Color>(_strengthColor)),
         const SizedBox(height: 16),
         SentryTextField(controller: _controllers['url']!, hint: 'URL (Optional)'),
+        const SizedBox(height: 16),
+        SentryTextField(controller: _controllers['totpSecret']!, hint: '2FA Setup Key (Optional)'),
       ];
     } else if (_selectedCategory == 'Bank') {
       return [

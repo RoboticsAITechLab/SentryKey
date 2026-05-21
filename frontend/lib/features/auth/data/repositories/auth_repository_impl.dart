@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:dartz/dartz.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -13,6 +14,7 @@ class _StorageKeys {
   static const String passwordHash = 'master_password_hash';
   static const String isRegistered = 'is_user_registered';
   static const String panicPasswordHash = 'panic_password_hash';
+  static const String decoyProfilesKey = 'decoy_profiles_map';
 }
 
 class AuthRepositoryImpl implements AuthRepository {
@@ -34,7 +36,6 @@ class AuthRepositoryImpl implements AuthRepository {
       final passwordHash = HashHelper.hashPassword(masterPassword);
 
       // Store hash and registration flag in secure storage.
-      // The plain password is NEVER written to disk.
       await _secureStorage.write(
         key: _StorageKeys.passwordHash,
         value: passwordHash,
@@ -70,14 +71,32 @@ class AuthRepositoryImpl implements AuthRepository {
       }
 
       final isValid = HashHelper.verifyPassword(masterPassword, storedHash);
-      final isPanic = panicHash != null && HashHelper.verifyPassword(masterPassword, panicHash);
+      bool isPanic = panicHash != null && HashHelper.verifyPassword(masterPassword, panicHash);
+      String duressProfile = 'default';
+
+      if (!isValid && !isPanic) {
+        // Scan custom multi decoy profiles mapping
+        final String? decoyJson = await _secureStorage.read(key: _StorageKeys.decoyProfilesKey);
+        if (decoyJson != null) {
+          final Map<String, dynamic> profiles = Map<String, dynamic>.from(jsonDecode(decoyJson));
+          for (final entry in profiles.entries) {
+            final profileHash = entry.value as String;
+            if (HashHelper.verifyPassword(masterPassword, profileHash)) {
+              isPanic = true;
+              duressProfile = entry.key;
+              break;
+            }
+          }
+        }
+      }
 
       if (!isValid && !isPanic) {
         return const Left(AuthFailure('Incorrect master password.'));
       }
 
-      // Password is correct — unlock the encrypted vault or duress vault.
+      // Unlock the appropriate primary or Honey-pot decoy database
       AuthSession.isDuressMode = isPanic;
+      AuthSession.activeDuressProfile = duressProfile;
       await _databaseService.initDatabase(masterPassword, isDuress: isPanic);
       _encryptionService.init(masterPassword);
 
@@ -100,11 +119,10 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<Either<Failure, bool>> resetMasterPassword() async {
     try {
-      // 1. Delete from secure storage
       await _secureStorage.delete(key: _StorageKeys.passwordHash);
       await _secureStorage.delete(key: _StorageKeys.isRegistered);
+      await _secureStorage.delete(key: _StorageKeys.decoyProfilesKey);
 
-      // 2. Delete the actual database
       await _databaseService.deleteDatabaseFile();
 
       return const Right(true);
@@ -120,7 +138,57 @@ class AuthRepositoryImpl implements AuthRepository {
       await _secureStorage.write(key: _StorageKeys.panicPasswordHash, value: hash);
       return const Right(true);
     } catch (e) {
-      return Left(AuthFailure('Failed to setup panic mode: \${e.toString()}'));
+      return Left(AuthFailure('Failed to setup panic mode: ${e.toString()}'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, bool>> setupDecoyProfile(String pin, String profileName) async {
+    try {
+      final String? existingJson = await _secureStorage.read(key: _StorageKeys.decoyProfilesKey);
+      Map<String, dynamic> profiles = {};
+      if (existingJson != null) {
+        profiles = Map<String, dynamic>.from(jsonDecode(existingJson));
+      }
+      final hash = HashHelper.hashPassword(pin);
+      profiles[profileName.toLowerCase().trim()] = hash;
+      await _secureStorage.write(key: _StorageKeys.decoyProfilesKey, value: jsonEncode(profiles));
+      return const Right(true);
+    } catch (e) {
+      return Left(AuthFailure('Failed to setup decoy profile: ${e.toString()}'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Map<String, String>>> getDecoyProfiles() async {
+    try {
+      final String? existingJson = await _secureStorage.read(key: _StorageKeys.decoyProfilesKey);
+      if (existingJson == null) {
+        return const Right({});
+      }
+      final rawMap = Map<String, dynamic>.from(jsonDecode(existingJson));
+      final Map<String, String> result = {};
+      rawMap.forEach((key, value) {
+        result[key] = 'Decoy Profile Active';
+      });
+      return Right(result);
+    } catch (e) {
+      return Left(StorageFailure('Failed to fetch decoy profiles: ${e.toString()}'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, bool>> deleteDecoyProfile(String profileName) async {
+    try {
+      final String? existingJson = await _secureStorage.read(key: _StorageKeys.decoyProfilesKey);
+      if (existingJson != null) {
+        final Map<String, dynamic> profiles = Map<String, dynamic>.from(jsonDecode(existingJson));
+        profiles.remove(profileName.toLowerCase().trim());
+        await _secureStorage.write(key: _StorageKeys.decoyProfilesKey, value: jsonEncode(profiles));
+      }
+      return const Right(true);
+    } catch (e) {
+      return Left(AuthFailure('Failed to delete decoy profile: ${e.toString()}'));
     }
   }
 }
