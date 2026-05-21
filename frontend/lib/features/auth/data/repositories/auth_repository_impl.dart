@@ -33,7 +33,7 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<Either<Failure, bool>> signUp(String masterPassword) async {
     try {
-      final passwordHash = HashHelper.hashPassword(masterPassword);
+      final passwordHash = await HashHelper.hashPassword(masterPassword);
 
       // Store hash and registration flag in secure storage.
       await _secureStorage.write(
@@ -47,7 +47,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
       // Open the encrypted vault with the master password as the SQLCipher key.
       await _databaseService.initDatabase(masterPassword);
-      _encryptionService.init(masterPassword);
+      await _encryptionService.init(masterPassword);
 
       return const Right(true);
     } catch (e) {
@@ -70,8 +70,8 @@ class AuthRepositoryImpl implements AuthRepository {
         return const Left(AuthFailure('No master password found. Please sign up first.'));
       }
 
-      final isValid = HashHelper.verifyPassword(masterPassword, storedHash);
-      bool isPanic = panicHash != null && HashHelper.verifyPassword(masterPassword, panicHash);
+      final isValid = await HashHelper.verifyPassword(masterPassword, storedHash);
+      bool isPanic = panicHash != null && await HashHelper.verifyPassword(masterPassword, panicHash);
       String duressProfile = 'default';
 
       if (!isValid && !isPanic) {
@@ -81,7 +81,7 @@ class AuthRepositoryImpl implements AuthRepository {
           final Map<String, dynamic> profiles = Map<String, dynamic>.from(jsonDecode(decoyJson));
           for (final entry in profiles.entries) {
             final profileHash = entry.value as String;
-            if (HashHelper.verifyPassword(masterPassword, profileHash)) {
+            if (await HashHelper.verifyPassword(masterPassword, profileHash)) {
               isPanic = true;
               duressProfile = entry.key;
               break;
@@ -98,7 +98,7 @@ class AuthRepositoryImpl implements AuthRepository {
       AuthSession.isDuressMode = isPanic;
       AuthSession.activeDuressProfile = duressProfile;
       await _databaseService.initDatabase(masterPassword, isDuress: isPanic);
-      _encryptionService.init(masterPassword);
+      await _encryptionService.init(masterPassword);
 
       return const Right(true);
     } catch (e) {
@@ -134,7 +134,7 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<Either<Failure, bool>> setupPanicMode(String panicPassword) async {
     try {
-      final hash = HashHelper.hashPassword(panicPassword);
+      final hash = await HashHelper.hashPassword(panicPassword);
       await _secureStorage.write(key: _StorageKeys.panicPasswordHash, value: hash);
       return const Right(true);
     } catch (e) {
@@ -150,7 +150,7 @@ class AuthRepositoryImpl implements AuthRepository {
       if (existingJson != null) {
         profiles = Map<String, dynamic>.from(jsonDecode(existingJson));
       }
-      final hash = HashHelper.hashPassword(pin);
+      final hash = await HashHelper.hashPassword(pin);
       profiles[profileName.toLowerCase().trim()] = hash;
       await _secureStorage.write(key: _StorageKeys.decoyProfilesKey, value: jsonEncode(profiles));
       return const Right(true);
